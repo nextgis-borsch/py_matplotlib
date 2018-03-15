@@ -219,6 +219,7 @@ elseif(WIN32)
     get_lib_path_from_include(${AGG_INCLUDE_DIRS} AGG_LIBRARY_DIR)
 
     set(FREETYPE_INCLUDE_DIRS ${FREETYPE_INCLUDE_DIRS}/freetype2 CACHE INTERNAL "" FORCE)
+    set(AGG_INCLUDE_DIRS ${AGG_INCLUDE_DIRS}/agg2 CACHE INTERNAL "" FORCE)
 endif()
 
 configure_file(${CMAKE_SOURCE_DIR}/cmake/setupext.py.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/${OUT_DIR_NAME}/setupext.py IMMEDIATE @ONLY)
