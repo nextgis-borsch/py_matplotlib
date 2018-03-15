@@ -929,35 +929,48 @@ class DelayedExtension(Extension, object):
 
     include_dirs = DelayedMember('include_dirs')
 
+class InstallRequires(SetupPackage):
+    name = 'InstallRequires'
 
 class Numpy(SetupPackage):
     name = "numpy"
 
+    # Function to find numpy's include directory
+    @staticmethod
+    def get_numpy_include():
+        numpy_include = "@NUMPY_INCLUDE_DIRS@"
+        if numpy_include and numpy_include != "":
+            return numpy_include
+        else:
+            numpy.get_include()
+
     @staticmethod
     def include_dirs_hook():
-        if PY3min:
-            import builtins
-            if hasattr(builtins, '__NUMPY_SETUP__'):
-                del builtins.__NUMPY_SETUP__
-            import imp
-            import numpy
-            imp.reload(numpy)
-        else:
-            import __builtin__
-            if hasattr(__builtin__, '__NUMPY_SETUP__'):
-                del __builtin__.__NUMPY_SETUP__
-            import numpy
-            reload(numpy)
+        numpy_include = "@NUMPY_INCLUDE_DIRS@"
+        if not numpy_include or numpy_include == "":
+            if PY3min:
+                import builtins
+                if hasattr(builtins, '__NUMPY_SETUP__'):
+                    del builtins.__NUMPY_SETUP__
+                import imp
+                import numpy
+                imp.reload(numpy)
+            else:
+                import __builtin__
+                if hasattr(__builtin__, '__NUMPY_SETUP__'):
+                    del __builtin__.__NUMPY_SETUP__
+                import numpy
+                reload(numpy)
 
-        ext = Extension('test', [])
-        ext.include_dirs.append(numpy.get_include())
-        if not has_include_file(
-                ext.include_dirs, os.path.join("numpy", "arrayobject.h")):
-            warnings.warn(
-                "The C headers for numpy could not be found. "
-                "You may need to install the development package")
+            ext = Extension('test', [])
+            ext.include_dirs.append(Numpy.get_numpy_include())
+            if not has_include_file(
+                    ext.include_dirs, os.path.join("numpy", "arrayobject.h")):
+                warnings.warn(
+                    "The C headers for numpy could not be found. "
+                    "You may need to install the development package")
 
-        return [numpy.get_include()]
+        return [Numpy.get_numpy_include()]
 
     def check(self):
         min_version = extract_versions()['__version__numpy__']
@@ -1006,6 +1019,9 @@ class LibAgg(SetupPackage):
             ext.extra_link_args.extend(['-framework', '@AGG_FRAMEWORK@'])
             ext.extra_link_args.extend(['-Wl,-rpath,@loader_path/../../../../Frameworks/'])
             ext.extra_link_args.extend(['-mmacosx-version-min=@CMAKE_OSX_DEPLOYMENT_TARGET@'])
+        elif sys.plaform == 'win32':
+            ext.libraries.append('agg')
+            ext.library_dirs.append('@AGG_LIBRARY_DIR@')
 
         pkg_config.setup_extension(
             ext, 'libagg',
@@ -1024,6 +1040,10 @@ class FreeType(SetupPackage):
             ext.extra_link_args.extend(['-framework', '@FREETYPE_FRAMEWORK@'])
             ext.extra_link_args.extend(['-Wl,-rpath,@loader_path/../../../../Frameworks/'])
             ext.extra_link_args.extend(['-mmacosx-version-min=@CMAKE_OSX_DEPLOYMENT_TARGET@'])
+        elif sys.plaform == 'win32':
+            ext.libraries.append('freetype')
+            ext.library_dirs.append('@FREETYPE_LIBRARY_DIR@')
+
         pkg_config.setup_extension(
             ext, 'freetype2',
             default_include_dirs=['@FREETYPE_INCLUDE_DIRS@'],
@@ -1062,6 +1082,9 @@ class Png(SetupPackage):
             ext.extra_link_args.extend(['-framework', '@PNG_FRAMEWORK@'])
             ext.extra_link_args.extend(['-Wl,-rpath,@loader_path/../../../../Frameworks/'])
             ext.extra_link_args.extend(['-mmacosx-version-min=@CMAKE_OSX_DEPLOYMENT_TARGET@'])
+        elif sys.plaform == 'win32':
+            ext.libraries.append('png')
+            ext.library_dirs.append('@PNG_LIBRARY_DIR@')
 
         pkg_config.setup_extension(
             ext, 'libpng',
@@ -1083,6 +1106,9 @@ class Qhull(SetupPackage):
             ext.extra_link_args.extend(['-framework', '@QHULL_FRAMEWORK@'])
             ext.extra_link_args.extend(['-Wl,-rpath,@loader_path/../../../../Frameworks/'])
             ext.extra_link_args.extend(['-mmacosx-version-min=@CMAKE_OSX_DEPLOYMENT_TARGET@'])
+        elif sys.plaform == 'win32':
+            ext.libraries.append('qhull')
+            ext.library_dirs.append('@QHULL_LIBRARY_DIR@')
 
         pkg_config.setup_extension(
             ext, 'qhull',
