@@ -211,6 +211,8 @@ elseif(WIN32)
         set(${LIB_DIR} "${FW_DIR}/lib")
     endmacro()
 
+    set(FREETYPE_INCLUDE_DIRS ${FREETYPE_INCLUDE_DIRS}/freetype2 CACHE INTERNAL "" FORCE)
+
     get_lib_path_from_include(${PNG_INCLUDE_DIRS} PNG_LIBRARY_DIR)
     get_lib_path_from_include(${FREETYPE_INCLUDE_DIRS} FREETYPE_LIBRARY_DIR)
     get_lib_path_from_include(${QHULL_INCLUDE_DIRS} QHULL_LIBRARY_DIR)
