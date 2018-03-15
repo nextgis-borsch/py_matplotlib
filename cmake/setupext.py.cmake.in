@@ -744,6 +744,7 @@ class Matplotlib(SetupPackage):
                 'mpl-data/example/*.npy',
                 'mpl-data/matplotlibrc',
                 'backends/web_backend/*.*',
+                'backends/web_backend/js/*.*',
                 'backends/web_backend/jquery/js/*.min.js',
                 'backends/web_backend/jquery/css/themes/base/*.min.css',
                 'backends/web_backend/jquery/css/themes/base/images/*',
@@ -787,7 +788,7 @@ class Toolkits(OptionalPackage):
 
 class Tests(OptionalPackage):
     name = "tests"
-    pytest_min_version = '3.0.0'
+    pytest_min_version = '3.1'
     default_config = False
 
     def check(self):
@@ -877,7 +878,6 @@ class Toolkits_Tests(Tests):
 
     def get_namespace_packages(self):
         return ['mpl_toolkits']
-
 
 class DelayedExtension(Extension, object):
     """
@@ -1133,7 +1133,7 @@ class TTConv(SetupPackage):
             ]
         ext = make_extension('matplotlib.ttconv', sources)
         Numpy().add_flags(ext)
-        ext.include_dirs.append('extern')
+        ext.include_dirs.insert(0, 'extern')
         return ext
 
 
@@ -1166,18 +1166,6 @@ class Image(SetupPackage):
         Numpy().add_flags(ext)
         LibAgg().add_flags(ext)
 
-        return ext
-
-
-class ContourLegacy(SetupPackage):
-    name = "contour_legacy"
-
-    def get_extension(self):
-        sources = [
-            "src/cntr.c"
-            ]
-        ext = make_extension('matplotlib._cntr', sources)
-        Numpy().add_flags(ext)
         return ext
 
 
@@ -1220,170 +1208,26 @@ class Tri(SetupPackage):
         return ext
 
 
-class Six(SetupPackage):
-    name = "six"
-    min_version = "1.10"
+class InstallRequires(SetupPackage):
+    name = "install_requires"
 
     def check(self):
-        try:
-            import six
-        except ImportError:
-            return (
-                "six was not found."
-                "pip will attempt to install it "
-                "after matplotlib.")
-
-        if not is_min_version(six.__version__, self.min_version):
-            return ("The installed version of six is {inst_ver} but "
-                    "a the minimum required version is {min_ver}. "
-                    "pip/easy install will attempt to install a "
-                    "newer version."
-                    ).format(min_ver=self.min_version,
-                             inst_ver=six.__version__)
-
-        return "using six version %s" % six.__version__
+        return "handled by setuptools"
 
     def get_install_requires(self):
-        return ['six>={0}'.format(self.min_version)]
-
-
-class Pytz(SetupPackage):
-    name = "pytz"
-
-    def check(self):
-        try:
-            import pytz
-        except ImportError:
-            return (
-                "pytz was not found. "
-                "pip/easy_install may attempt to install it "
-                "after matplotlib.")
-
-        return "using pytz version %s" % pytz.__version__
-
-    def get_install_requires(self):
-        return ['pytz']
-
-
-class Cycler(SetupPackage):
-    name = "cycler"
-
-    def check(self):
-        try:
-            import cycler
-        except ImportError:
-            return (
-                "cycler was not found. "
-                "pip/easy_install may attempt to install it "
-                "after matplotlib.")
-        return "using cycler version %s" % cycler.__version__
-
-    def get_install_requires(self):
-        return ['cycler>=0.10']
-
-
-class Dateutil(SetupPackage):
-    name = "dateutil"
-
-    def __init__(self, version='>=2.0'):
-        self.version = version
-
-    def check(self):
-        try:
-            import dateutil
-        except ImportError:
-            return (
-                "dateutil was not found. It is required for date axis "
-                "support. pip/easy_install may attempt to install it "
-                "after matplotlib.")
-
-        return "using dateutil version %s" % dateutil.__version__
-
-    def get_install_requires(self):
-        dateutil = 'python-dateutil'
-        if self.version is not None:
-            dateutil += self.version
-        return [dateutil]
-
-
-class BackportsFuncToolsLRUCache(SetupPackage):
-    name = "backports.functools_lru_cache"
-
-    def check(self):
-        if not PY3min:
-            try:
-                import backports.functools_lru_cache
-            except ImportError:
-                return (
-                    "backports.functools_lru_cache was not found. It is required for"
-                    "Python versions prior to 3.2")
-
-            return "using backports.functools_lru_cache"
-        else:
-            return "Not required"
-
-    def get_install_requires(self):
-        if not PY3min:
-            return ['backports.functools_lru_cache']
-        else:
-            return []
-
-
-class Subprocess32(SetupPackage):
-    name = "subprocess32"
-
-    def check(self):
-        if not PY3min:
-            try:
-                import subprocess32
-            except ImportError:
-                return (
-                    "subprocess32 was not found. It used "
-                    " for Python versions prior to 3.2 to improves"
-                    " functionality on Linux and OSX")
-
-            return "using subprocess32"
-        else:
-            return "Not required"
-
-    def get_install_requires(self):
-        if not PY3min and os.name == 'posix':
-            return ['subprocess32']
-        else:
-            return []
-
-
-class Tornado(OptionalPackage):
-    name = "tornado"
-
-    def check(self):
-        try:
-            import tornado
-        except ImportError:
-            return (
-                "tornado was not found. It is required for the WebAgg "
-                "backend. pip/easy_install may attempt to install it "
-                "after matplotlib.")
-
-        return "using tornado version %s" % tornado.version
-
-
-class Pyparsing(SetupPackage):
-    name = "pyparsing"
-
-    def check(self):
-        try:
-            import pyparsing
-        except ImportError:
-            return (
-                "pyparsing was not found. It is required for mathtext "
-                "support. pip/easy_install may attempt to install it "
-                "after matplotlib.")
-
-        return "using pyparsing version %s" % pyparsing.__version__
-
-    def get_install_requires(self):
-        return ['pyparsing>=2.0.1,!=2.0.4,!=2.1.2,!=2.1.6']
+        install_requires = [
+            "cycler>=0.10",
+            "pyparsing>=2.0.1,!=2.0.4,!=2.1.2,!=2.1.6",
+            "python-dateutil>=2.1",
+            "pytz",
+            "six>=1.10",
+            "kiwisolver>=1.0.1",
+        ]
+        if sys.version_info < (3,):
+            install_requires += ["backports.functools_lru_cache"]
+        if sys.version_info < (3,) and os.name == "posix":
+            install_requires += ["subprocess32"]
+        return install_requires
 
 
 class BackendAgg(OptionalBackendPackage):
@@ -1423,21 +1267,21 @@ class BackendTkAgg(OptionalBackendPackage):
 
     def get_extension(self):
         sources = [
-            'src/py_converters.cpp',
             'src/_tkagg.cpp'
             ]
 
         ext = make_extension('matplotlib.backends._tkagg', sources)
         self.add_flags(ext)
-        Numpy().add_flags(ext)
         LibAgg().add_flags(ext, add_sources=False)
         return ext
 
     def add_flags(self, ext):
-        ext.include_dirs.extend(['src'])
+        ext.include_dirs.insert(0, 'src')
         if sys.platform == 'win32':
             # PSAPI library needed for finding Tcl / Tk at run time
             ext.libraries.extend(['psapi'])
+        elif sys.platform.startswith('linux'):
+            ext.libraries.extend(['dl'])
 
 
 class BackendGtk(OptionalBackendPackage):
@@ -1605,7 +1449,7 @@ class BackendGtk3Agg(OptionalBackendPackage):
             success, msg = res.get(timeout=10)[0]
         except multiprocessing.TimeoutError:
             p.terminate()
-            # No result returned. Probaly hanging, terminate the process.
+            # No result returned. Probably hanging, terminate the process.
             success = False
             raise CheckFailed("Check timed out")
         except:
@@ -1679,7 +1523,7 @@ class BackendGtk3Cairo(OptionalBackendPackage):
             success, msg = res.get(timeout=10)[0]
         except multiprocessing.TimeoutError:
             p.terminate()
-            # No result returned. Probaly hanging, terminate the process.
+            # No result returned. Probably hanging, terminate the process.
             success = False
             raise CheckFailed("Check timed out")
         except:
@@ -1717,7 +1561,7 @@ class BackendWxAgg(OptionalBackendPackage):
                 _wx_ensure_failed = wxversion.VersionError
 
             try:
-                wxversion.ensureMinimal('2.8')
+                wxversion.ensureMinimal('2.9')
             except _wx_ensure_failed:
                 pass
 
@@ -1727,13 +1571,9 @@ class BackendWxAgg(OptionalBackendPackage):
         except ImportError:
             raise CheckFailed("requires wxPython")
 
-        # Extra version check in case wxversion lacks AlreadyImportedError;
-        # then VersionError might have been raised and ignored when
-        # there really *is* a problem with the version.
-        major, minor = [int(n) for n in backend_version.split('.')[:2]]
-        if major < 2 or (major < 3 and minor < 8):
+        if not is_min_version(backend_version, "2.9"):
             raise CheckFailed(
-                "Requires wxPython 2.8, found %s" % backend_version)
+                "Requires wxPython 2.9, found %s" % backend_version)
 
         return "version %s" % backend_version
 
@@ -1818,7 +1658,7 @@ class BackendQtBase(OptionalBackendPackage):
                 msg = res.get(timeout=10)[0]
             except multiprocessing.TimeoutError:
                 p.terminate()
-                # No result returned. Probaly hanging, terminate the process.
+                # No result returned. Probably hanging, terminate the process.
                 raise CheckFailed("Check timed out")
             except:
                 # Some other error.
@@ -1853,7 +1693,7 @@ def backend_pyqt4_internal_check(self):
 
     try:
         qt_version = QtCore.QT_VERSION
-        pyqt_version_str = QtCore.QT_VERSION_STR
+        pyqt_version_str = QtCore.PYQT_VERSION_STR
     except AttributeError:
         raise CheckFailed('PyQt4 not correctly imported')
     else:
@@ -1903,7 +1743,7 @@ def backend_pyqt5_internal_check(self):
 
     try:
         qt_version = QtCore.QT_VERSION
-        pyqt_version_str = QtCore.QT_VERSION_STR
+        pyqt_version_str = QtCore.PYQT_VERSION_STR
     except AttributeError:
         raise CheckFailed('PyQt5 not correctly imported')
     else:
