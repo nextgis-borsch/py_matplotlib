@@ -974,17 +974,22 @@ class Numpy(SetupPackage):
 
     def check(self):
         min_version = extract_versions()['__version__numpy__']
-        try:
-            import numpy
-        except ImportError:
-            return 'not found. pip may install it below.'
 
-        if not is_min_version(numpy.__version__, min_version):
-            raise SystemExit(
-                "Requires numpy %s or later to build.  (Found %s)" %
-                (min_version, numpy.__version__))
+        numpy_ver = '@NUMPY_VERSION@'
+        if numpy_ver == "":
+            try:
+                import numpy
+            except ImportError:
+                return 'not found. pip may install it below.'
 
-        return 'version %s' % numpy.__version__
+            if not is_min_version(numpy.__version__, min_version):
+                raise SystemExit(
+                    "Requires numpy %s or later to build.  (Found %s)" %
+                    (min_version, numpy.__version__))
+
+            numpy_ver =  numpy.__version__
+
+        return 'version %s' % numpy_ver
 
     def add_flags(self, ext):
         # Ensure that PY_ARRAY_UNIQUE_SYMBOL is uniquely defined for
@@ -1019,7 +1024,7 @@ class LibAgg(SetupPackage):
             ext.extra_link_args.extend(['-framework', '@AGG_FRAMEWORK@'])
             ext.extra_link_args.extend(['-Wl,-rpath,@loader_path/../../../../Frameworks/'])
             ext.extra_link_args.extend(['-mmacosx-version-min=@CMAKE_OSX_DEPLOYMENT_TARGET@'])
-        elif sys.plaform == 'win32':
+        elif sys.platform == 'win32':
             ext.libraries.append('agg')
             ext.library_dirs.append('@AGG_LIBRARY_DIR@')
 
@@ -1040,7 +1045,7 @@ class FreeType(SetupPackage):
             ext.extra_link_args.extend(['-framework', '@FREETYPE_FRAMEWORK@'])
             ext.extra_link_args.extend(['-Wl,-rpath,@loader_path/../../../../Frameworks/'])
             ext.extra_link_args.extend(['-mmacosx-version-min=@CMAKE_OSX_DEPLOYMENT_TARGET@'])
-        elif sys.plaform == 'win32':
+        elif sys.platform == 'win32':
             ext.libraries.append('freetype')
             ext.library_dirs.append('@FREETYPE_LIBRARY_DIR@')
 
@@ -1082,7 +1087,7 @@ class Png(SetupPackage):
             ext.extra_link_args.extend(['-framework', '@PNG_FRAMEWORK@'])
             ext.extra_link_args.extend(['-Wl,-rpath,@loader_path/../../../../Frameworks/'])
             ext.extra_link_args.extend(['-mmacosx-version-min=@CMAKE_OSX_DEPLOYMENT_TARGET@'])
-        elif sys.plaform == 'win32':
+        elif sys.platform == 'win32':
             ext.libraries.append('png')
             ext.library_dirs.append('@PNG_LIBRARY_DIR@')
 
@@ -1106,7 +1111,7 @@ class Qhull(SetupPackage):
             ext.extra_link_args.extend(['-framework', '@QHULL_FRAMEWORK@'])
             ext.extra_link_args.extend(['-Wl,-rpath,@loader_path/../../../../Frameworks/'])
             ext.extra_link_args.extend(['-mmacosx-version-min=@CMAKE_OSX_DEPLOYMENT_TARGET@'])
-        elif sys.plaform == 'win32':
+        elif sys.platform == 'win32':
             ext.libraries.append('qhull')
             ext.library_dirs.append('@QHULL_LIBRARY_DIR@')
 
@@ -1487,7 +1492,7 @@ class BackendGtk(OptionalBackendPackage):
                 # If Gtk+ is installed, pkg-config is required to be installed
                 os.environ['PKG_CONFIG_PATH'] = 'C:\\GTK\\lib\\pkgconfig'
 
-                # popen broken on my win32 plaform so I can't use pkgconfig
+                # popen broken on my win32 platform so I can't use pkgconfig
                 ext.library_dirs.extend(
                     ['C:/GTK/bin', 'C:/GTK/lib'])
 
