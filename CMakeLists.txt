@@ -255,9 +255,16 @@ configure_file(${CMAKE_SOURCE_DIR}/cmake/setupext.py.cmake.in ${CMAKE_CURRENT_BI
 # python setup.py install --prefix=/usr/local
 
 macro(build_py ver)
+    status_message("Configuring ...")
+    execute_process(COMMAND ${CMAKE_COMMAND} -E env "${FLAGS}"
+        ${PYTHON${ver}_EXECUTABLE} setup.py build # ${BUILD_INCLUDES}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/${OUT_DIR_NAME}
+        OUTPUT_QUIET ERROR_QUIET
+    )
+
     add_custom_target(build_py${ver} ALL
         COMMAND ${CMAKE_COMMAND} -E env "${FLAGS}"
-        ${PYTHON${ver}_EXECUTABLE} setup.py build_ext # ${BUILD_INCLUDES}
+        ${PYTHON${ver}_EXECUTABLE} setup.py build # ${BUILD_INCLUDES}
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/${OUT_DIR_NAME}
         VERBATIM
     )
