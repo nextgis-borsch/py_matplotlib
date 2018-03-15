@@ -212,8 +212,10 @@ elseif(WIN32)
     endmacro()
 
     get_lib_path_from_include(${PNG_INCLUDE_DIRS} PNG_LIBRARY_DIR)
+    set(PNG_LIBRARY libpng16) # TODO: Get lib name from target properties IMPORTED_IMPLIB_RELEASE
     get_lib_path_from_include(${FREETYPE_INCLUDE_DIRS} FREETYPE_LIBRARY_DIR)
     get_lib_path_from_include(${QHULL_INCLUDE_DIRS} QHULL_LIBRARY_DIR)
+    set(QHULL_LIBRARY qhull_i)
     get_lib_path_from_include(${AGG_INCLUDE_DIRS} AGG_LIBRARY_DIR)
 
     set(FREETYPE_INCLUDE_DIRS ${FREETYPE_INCLUDE_DIRS}/freetype2 CACHE INTERNAL "" FORCE)

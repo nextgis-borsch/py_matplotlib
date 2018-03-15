@@ -1088,7 +1088,7 @@ class Png(SetupPackage):
             ext.extra_link_args.extend(['-Wl,-rpath,@loader_path/../../../../Frameworks/'])
             ext.extra_link_args.extend(['-mmacosx-version-min=@CMAKE_OSX_DEPLOYMENT_TARGET@'])
         elif sys.platform == 'win32':
-            ext.libraries.append('png')
+            ext.libraries.append('@PNG_LIBRARY@')
             ext.library_dirs.append('@PNG_LIBRARY_DIR@')
 
         pkg_config.setup_extension(
