@@ -5,70 +5,186 @@ from importlib import import_module
 from distutils import sysconfig
 from distutils import version
 from distutils.core import Extension
+import hashlib
+
 import distutils.command.build_ext
+from io import BytesIO
+
 import glob
 import multiprocessing
 import os
 import platform
+
 import re
+
+import setuptools
+import shutil
+
 import subprocess
 from subprocess import check_output
 import sys
 import warnings
 from textwrap import fill
 import shutil
+
+import tarfile
+import textwrap
+
 import versioneer
+import warnings
+import contextlib
+
+if sys.version_info < (3, ):
+    from urllib2 import urlopen, Request
+
+    class FileExistsError(OSError):
+        pass
+
+    def makedirs(path, exist_ok=True):
+        if not exist_ok:
+            raise ValueError("this backport only supports exist_ok is True")
+        if not path or os.path.exists(path):
+            return
+        head, tail = os.path.split(path)
+
+        makedirs(head, exist_ok=True)
+        os.makedirs(path)
+
+else:
+    from urllib.request import urlopen, Request
+    from os import makedirs
 
 
 PY3min = (sys.version_info[0] >= 3)
 
 
-def _get_home():
-    """Find user's home directory if possible.
-    Otherwise, returns None.
-
-    :see:
-        http://mail.python.org/pipermail/python-list/2005-February/325395.html
-    """
-    try:
-        if not PY3min and sys.platform == 'win32':
-            path = os.path.expanduser(b"~").decode(sys.getfilesystemencoding())
-        else:
-            path = os.path.expanduser("~")
-    except ImportError:
-        # This happens on Google App Engine (pwd module is not present).
-        pass
-    else:
-        if os.path.isdir(path):
-            return path
-    for evar in ('HOME', 'USERPROFILE', 'TMP'):
-        path = os.environ.get(evar)
-        if path is not None and os.path.isdir(path):
-            return path
-    return None
-
-
 def _get_xdg_cache_dir():
     """
-    Returns the XDG cache directory, according to the `XDG
-    base directory spec
-    <http://standards.freedesktop.org/basedir-spec/basedir-spec-latest.html>`_.
+    Return the XDG cache directory.
+
+    See https://standards.freedesktop.org/basedir-spec/basedir-spec-latest.html
     """
-    path = os.environ.get('XDG_CACHE_HOME')
-    if path is None:
-        path = _get_home()
-        if path is not None:
-            path = os.path.join(path, '.cache', 'matplotlib')
-    return path
+    cache_dir = os.environ.get('XDG_CACHE_HOME')
+    if not cache_dir:
+        cache_dir = os.path.expanduser('~/.cache')
+        if cache_dir.startswith('~/'):  # Expansion failed.
+            return None
+    return os.path.join(cache_dir, 'matplotlib')
 
 
+def get_fd_hash(fd):
+    """
+    Compute the sha256 hash of the bytes in a file-like
+    """
+    BLOCKSIZE = 1 << 16
+    hasher = hashlib.sha256()
+    old_pos = fd.tell()
+    fd.seek(0)
+    buf = fd.read(BLOCKSIZE)
+    while buf:
+        hasher.update(buf)
+        buf = fd.read(BLOCKSIZE)
+    fd.seek(old_pos)
+    return hasher.hexdigest()
+
+
+def download_or_cache(url, sha):
+    """
+    Get bytes from the given url or local cache.
+
+    Parameters
+    ----------
+    url : str
+        The url to download
+
+    sha : str
+        The sha256 of the file
+
+    Returns
+    -------
+    BytesIO
+        The file loaded into memory.
+    """
+    cache_dir = _get_xdg_cache_dir()
+
+    def get_from_cache(local_fn):
+        if cache_dir is None:
+            raise Exception("no cache dir")
+        cache_filename = os.path.join(cache_dir, local_fn)
+        with open(cache_filename, 'rb') as fin:
+            buf = BytesIO(fin.read())
+        file_sha = get_fd_hash(buf)
+        if file_sha != sha:
+            return None
+        buf.seek(0)
+        return buf
+
+    def write_cache(local_fn, data):
+        if cache_dir is None:
+            raise Exception("no cache dir")
+
+        cache_filename = os.path.join(cache_dir, local_fn)
+        makedirs(cache_dir, exist_ok=True)
+        if sys.version_info < (3, ):
+            if os.path.exists(cache_filename):
+                raise FileExistsError
+            mode = 'wb'
+        else:
+            mode = 'xb'
+        old_pos = data.tell()
+        data.seek(0)
+        with open(cache_filename, mode=mode) as fout:
+            fout.write(data.read())
+        data.seek(old_pos)
+
+    try:
+        return get_from_cache(sha)
+    except Exception:
+        pass
+
+    # jQueryUI's website blocks direct downloads from urllib.request's
+    # default User-Agent, but not (for example) wget; so I don't feel too
+    # bad passing in an empty User-Agent.
+    with contextlib.closing(urlopen(
+            Request(url, headers={"User-Agent": ""}))) as req:
+        file_contents = BytesIO(req.read())
+        file_contents.seek(0)
+
+    file_sha = get_fd_hash(file_contents)
+
+    if file_sha != sha:
+        raise Exception(("The download file does not match the "
+                         "expected sha.  {url} was expected to have "
+                         "{sha} but it had {file_sha}").format(
+                             sha=sha, file_sha=file_sha, url=url))
+
+    try:
+        write_cache(sha, file_contents)
+    except Exception:
+        pass
+
+    file_contents.seek(0)
+    return file_contents
+
+
+# SHA256 hashes of the FreeType tarballs
+_freetype_hashes = {
+    '2.6.1': '0a3c7dfbda6da1e8fce29232e8e96d987ababbbf71ebc8c75659e4132c367014',
+    '2.6.2': '8da42fc4904e600be4b692555ae1dcbf532897da9c5b9fb5ebd3758c77e5c2d4',
+    '2.6.3': '7942096c40ee6fea882bd4207667ad3f24bff568b96b10fd3885e11a7baad9a3',
+    '2.6.4': '27f0e38347a1850ad57f84fc4dfed68ba0bc30c96a6fa6138ef84d485dd9a8d7',
+    '2.6.5': '3bb24add9b9ec53636a63ea8e867ed978c4f8fdd8f1fa5ccfd41171163d4249a',
+    '2.7': '7b657d5f872b0ab56461f3bd310bd1c5ec64619bd15f0d8e08282d494d9cfea4',
+    '2.7.1': '162ef25aa64480b1189cdb261228e6c5c44f212aac4b4621e28cf2157efb59f5',
+    '2.8': '33a28fabac471891d0523033e99c0005b95e5618dc8ffa7fa47f9dadcacb1c9b',
+    '2.8.1': '876711d064a6a1bd74beb18dd37f219af26100f72daaebd2d86cb493d7cd7ec6',
+}
 # This is the version of FreeType to use when building a local
 # version.  It must match the value in
 # lib/matplotlib.__init__.py and also needs to be changed below in the
 # embedded windows build script (grep for "REMINDER" in this file)
 LOCAL_FREETYPE_VERSION = '2.6.1'
-# md5 hash of the freetype tarball
-LOCAL_FREETYPE_HASH = '348e667d728c597360e4a87c16556597'
+LOCAL_FREETYPE_HASH = _freetype_hashes.get(LOCAL_FREETYPE_VERSION, 'unknown')
 
 if sys.platform != 'win32':
     if not PY3min:
@@ -151,7 +267,8 @@ def has_include_file(include_dirs, filename):
     directories in `include_dirs`.
     """
     if sys.platform == 'win32':
-        include_dirs += os.environ.get('INCLUDE', '.').split(';')
+        include_dirs = list(include_dirs)  # copy before modify
+        include_dirs += os.environ.get('INCLUDE', '.').split(os.pathsep)
     for dir in include_dirs:
         if os.path.exists(os.path.join(dir, filename)):
             return True
@@ -180,10 +297,14 @@ def get_base_dirs():
         return os.environ.get('MPLBASEDIRLIST').split(os.pathsep)
 
     win_bases = ['win32_static', ]
-    # on conda windows, we also add the <installdir>\Library of the local interpreter,
+    # on conda windows, we also add the <conda_env_dir>\Library,
     # as conda installs libs/includes there
-    if os.getenv('CONDA_DEFAULT_ENV'):
-        win_bases.append(os.path.join(os.getenv('CONDA_DEFAULT_ENV'), "Library"))
+    # env var names mess: https://github.com/conda/conda/issues/2312
+    conda_env_path = os.getenv('CONDA_PREFIX')  # conda >= 4.1
+    if not conda_env_path:
+        conda_env_path = os.getenv('CONDA_DEFAULT_ENV')  # conda < 4.1
+    if conda_env_path and os.path.isdir(conda_env_path):
+        win_bases.append(os.path.join(conda_env_path, "Library"))
 
     basedir_map = {
         'win32': win_bases,
@@ -287,18 +408,14 @@ def make_extension(name, files, *args, **kwargs):
     return ext
 
 
-def get_file_hash(filename):
-    """
-    Get the MD5 hash of a given filename.
-    """
-    import hashlib
+def get_buffer_hash(fd):
     BLOCKSIZE = 1 << 16
-    hasher = hashlib.md5()
-    with open(filename, 'rb') as fd:
+    hasher = hashlib.sha256()
+    buf = fd.read(BLOCKSIZE)
+    while buf:
+        hasher.update(buf)
         buf = fd.read(BLOCKSIZE)
-        while len(buf) > 0:
-            hasher.update(buf)
-            buf = fd.read(BLOCKSIZE)
+
     return hasher.hexdigest()
 
 
@@ -578,8 +695,14 @@ class SetupPackage(object):
                         # is dropped. It is available in Python 3.3+
                         _ = check_output(["which", manager],
                                          stderr=subprocess.STDOUT)
-                        return ('Try installing {0} with `{1} install {2}`'
-                                .format(self.name, manager, pkg_name))
+                        if manager == 'port':
+                            pkgconfig = 'pkgconfig'
+                        else:
+                            pkgconfig = 'pkg-config'
+                        return ('Try installing {0} with `{1} install {2}` '
+                                'and pkg-config with `{1} install {3}`'
+                                .format(self.name, manager, pkg_name,
+                                        pkgconfig))
                     except subprocess.CalledProcessError:
                         pass
 
@@ -788,7 +911,7 @@ class Toolkits(OptionalPackage):
 
 class Tests(OptionalPackage):
     name = "tests"
-    pytest_min_version = '3.1'
+    pytest_min_version = '3.6'
     default_config = False
 
     def check(self):
@@ -879,6 +1002,7 @@ class Toolkits_Tests(Tests):
     def get_namespace_packages(self):
         return ['mpl_toolkits']
 
+
 class DelayedExtension(Extension, object):
     """
     A distutils Extension subclass where some of its members
@@ -929,67 +1053,39 @@ class DelayedExtension(Extension, object):
 
     include_dirs = DelayedMember('include_dirs')
 
-class InstallRequires(SetupPackage):
-    name = 'InstallRequires'
 
 class Numpy(SetupPackage):
     name = "numpy"
 
-    # Function to find numpy's include directory
-    @staticmethod
-    def get_numpy_include():
-        numpy_include = "@NUMPY_INCLUDE_DIRS@"
-        if numpy_include and numpy_include != "":
-            return numpy_include
-        else:
-            numpy.get_include()
-
     @staticmethod
     def include_dirs_hook():
-        numpy_include = "@NUMPY_INCLUDE_DIRS@"
-        if not numpy_include or numpy_include == "":
-            if PY3min:
-                import builtins
-                if hasattr(builtins, '__NUMPY_SETUP__'):
-                    del builtins.__NUMPY_SETUP__
-                import imp
-                import numpy
-                imp.reload(numpy)
-            else:
-                import __builtin__
-                if hasattr(__builtin__, '__NUMPY_SETUP__'):
-                    del __builtin__.__NUMPY_SETUP__
-                import numpy
-                reload(numpy)
+        # if PY3min:
+        #     import builtins
+        #     if hasattr(builtins, '__NUMPY_SETUP__'):
+        #         del builtins.__NUMPY_SETUP__
+        #     import imp
+        #     import numpy
+        #     imp.reload(numpy)
+        # else:
+        #     import __builtin__
+        #     if hasattr(__builtin__, '__NUMPY_SETUP__'):
+        #         del __builtin__.__NUMPY_SETUP__
+        #     import numpy
+        #     reload(numpy)
 
-            ext = Extension('test', [])
-            ext.include_dirs.append(Numpy.get_numpy_include())
-            if not has_include_file(
-                    ext.include_dirs, os.path.join("numpy", "arrayobject.h")):
-                warnings.warn(
-                    "The C headers for numpy could not be found. "
-                    "You may need to install the development package")
+        ext = Extension('test', [])
+        # ext.include_dirs.append(numpy.get_include())
+        ext.include_dirs.append("@NUMPY_INCLUDE_DIRS@")
+        if not has_include_file(
+                ext.include_dirs, os.path.join("numpy", "arrayobject.h")):
+            warnings.warn(
+                "The C headers for numpy could not be found. "
+                "You may need to install the development package")
 
-        return [Numpy.get_numpy_include()]
+        return ["@NUMPY_INCLUDE_DIRS@"] #[numpy.get_include()]
 
     def check(self):
-        min_version = extract_versions()['__version__numpy__']
-
-        numpy_ver = '@NUMPY_VERSION@'
-        if numpy_ver == "":
-            try:
-                import numpy
-            except ImportError:
-                return 'not found. pip may install it below.'
-
-            if not is_min_version(numpy.__version__, min_version):
-                raise SystemExit(
-                    "Requires numpy %s or later to build.  (Found %s)" %
-                    (min_version, numpy.__version__))
-
-            numpy_ver =  numpy.__version__
-
-        return 'version %s' % numpy_ver
+        return 'version @NUMPY_VERSION@'
 
     def add_flags(self, ext):
         # Ensure that PY_ARRAY_UNIQUE_SYMBOL is uniquely defined for
@@ -1035,6 +1131,14 @@ class LibAgg(SetupPackage):
 
 class FreeType(SetupPackage):
     name = "freetype"
+    pkg_names = {
+        "apt-get": "libfreetype6-dev",
+        "yum": "freetype-devel",
+        "dnf": "freetype-devel",
+        "brew": "freetype",
+        "port": "freetype",
+        "windows_url": "http://gnuwin32.sourceforge.net/packages/freetype.htm"
+        }
 
     def check(self):
         return 'version @FREETYPE_VERSION@'
@@ -1070,8 +1174,17 @@ class FT2Font(SetupPackage):
         Numpy().add_flags(ext)
         return ext
 
+
 class Png(SetupPackage):
     name = "png"
+    pkg_names = {
+        "apt-get": "libpng12-dev",
+        "yum": "libpng-devel",
+        "dnf": "libpng-devel",
+        "brew": "libpng",
+        "port": "libpng",
+        "windows_url": "http://gnuwin32.sourceforge.net/packages/libpng.htm"
+        }
 
     def check(self):
         return 'version @PNG_VERSION@'
@@ -1099,6 +1212,7 @@ class Png(SetupPackage):
         Numpy().add_flags(ext)
         return ext
 
+
 class Qhull(SetupPackage):
     name = "qhull"
 
@@ -1120,6 +1234,7 @@ class Qhull(SetupPackage):
             default_include_dirs=['@QHULL_INCLUDE_DIRS@'],
             # default_libraries=['qhull'],
         )
+
 
 class TTConv(SetupPackage):
     name = "ttconv"
@@ -1835,7 +1950,7 @@ class LaTeX(SetupPackage):
             output = check_output('latex -version', shell=True,
                                   stderr=subprocess.STDOUT)
             line = output.splitlines()[0].decode()
-            pattern = '(3\.1\d+)|(MiKTeX \d+.\d+)'
+            pattern = r'(3\.1\d+)|(MiKTeX \d+.\d+)'
             match = re.search(pattern, line)
             return "version %s" % match.group(0)
         except (IndexError, ValueError, AttributeError, subprocess.CalledProcessError):
