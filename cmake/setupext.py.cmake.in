@@ -1228,6 +1228,7 @@ class Qhull(SetupPackage):
         elif sys.platform == 'win32':
             ext.libraries.append('@QHULL_LIBRARY@')
             ext.library_dirs.append('@QHULL_LIBRARY_DIR@')
+            ext.extra_compile_args('-Dqh_dllimport')
 
         pkg_config.setup_extension(
             ext, 'qhull',
