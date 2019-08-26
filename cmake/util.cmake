@@ -55,6 +55,31 @@ function(warning_message text)
 
 endfunction()
 
+function(get_prefix prefix IS_STATIC)
+  if(IS_STATIC)
+    set(STATIC_PREFIX "static-")
+      if(ANDROID)
+        set(STATIC_PREFIX "${STATIC_PREFIX}android-${ANDROID_ABI}-")
+      elseif(IOS)
+        set(STATIC_PREFIX "${STATIC_PREFIX}ios-${IOS_ARCH}-")
+      endif()
+    endif()
+  set(${prefix} ${STATIC_PREFIX} PARENT_SCOPE)
+endfunction()
+
+
+function(get_cpack_filename ver name)
+    get_compiler_version(COMPILER)
+    
+    if(NOT DEFINED BUILD_STATIC_LIBS)
+      set(BUILD_STATIC_LIBS OFF)
+    endif()
+
+    get_prefix(STATIC_PREFIX ${BUILD_STATIC_LIBS})
+
+    set(${name} ${PROJECT_NAME}-${ver}-${STATIC_PREFIX}${COMPILER} PARENT_SCOPE)
+endfunction()
+
 function(get_compiler_version ver)
     ## Limit compiler version to 2 or 1 digits
     string(REPLACE "." ";" VERSION_LIST ${CMAKE_C_COMPILER_VERSION})
