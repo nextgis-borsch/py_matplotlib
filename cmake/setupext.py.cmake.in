@@ -12,6 +12,7 @@ import subprocess
 import sys
 import sysconfig
 import tarfile
+from tempfile import TemporaryDirectory
 import textwrap
 import urllib.request
 
@@ -22,9 +23,9 @@ _log = logging.getLogger(__name__)
 
 def _get_xdg_cache_dir():
     """
-    Return the XDG cache directory.
+    Return the `XDG cache directory`__.
 
-    See https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html
+    __ https://specifications.freedesktop.org/basedir-spec/latest/
     """
     cache_dir = os.environ.get('XDG_CACHE_HOME')
     if not cache_dir:
@@ -171,14 +172,13 @@ _freetype_hashes = {
         'f8db94d307e9c54961b39a1cc799a67d46681480696ed72ecf78d4473770f09b'
 }
 # This is the version of FreeType to use when building a local version.  It
-# must match the value in lib/matplotlib.__init__.py and also needs to be
-# changed below in the embedded windows build script (grep for "REMINDER" in
-# this file). Also update the cache path in `.circleci/config.yml`.
+# must match the value in lib/matplotlib.__init__.py, and the cache path in
+# `.circleci/config.yml`.
 TESTING_VERSION_OF_FREETYPE = '2.6.1'
 if sys.platform.startswith('win') and platform.machine() == 'ARM64':
     # older versions of freetype are not supported for win/arm64
     # Matplotlib tests will not pass
-    LOCAL_FREETYPE_VERSION = '2.11.1'
+    LOCAL_FREETYPE_VERSION = '2.11.0'
 else:
     LOCAL_FREETYPE_VERSION = TESTING_VERSION_OF_FREETYPE
 
@@ -186,7 +186,8 @@ LOCAL_FREETYPE_HASH = _freetype_hashes.get(LOCAL_FREETYPE_VERSION, 'unknown')
 
 # Also update the cache path in `.circleci/config.yml`.
 LOCAL_QHULL_VERSION = '2020.2'
-LOCAL_QHULL_HASH = 'b5c2d7eb833278881b952c8a52d20179eab87766b00b865000469a45c1838b7e'
+LOCAL_QHULL_HASH = (
+    'b5c2d7eb833278881b952c8a52d20179eab87766b00b865000469a45c1838b7e')
 
 
 # Matplotlib build options, which can be altered using mplsetup.cfg
@@ -197,9 +198,12 @@ if os.path.exists(mplsetup_cfg):
 options = {
     'backend': config.get('rc_options', 'backend', fallback=None),
     'system_freetype': config.getboolean(
-        'libs', 'system_freetype', fallback=sys.platform.startswith('aix')),
+        'libs', 'system_freetype',
+        fallback=sys.platform.startswith(('aix', 'os400'))
+    ),
     'system_qhull': config.getboolean(
-        'libs', 'system_qhull', fallback=False),
+        'libs', 'system_qhull', fallback=sys.platform.startswith('os400')
+    ),
 }
 
 
@@ -330,7 +334,6 @@ class SetupPackage:
 
 
 class OptionalPackage(SetupPackage):
-    config_category = "packages"
     default_config = True
 
     def check(self):
@@ -339,7 +342,7 @@ class OptionalPackage(SetupPackage):
 
         May be overridden by subclasses for additional checks.
         """
-        if config.getboolean(self.config_category, self.name,
+        if config.getboolean("packages", self.name,
                              fallback=self.default_config):
             return "installing"
         else:  # Configuration opt-out by user
@@ -388,7 +391,7 @@ class Matplotlib(SetupPackage):
                 "src/_backend_agg_wrapper.cpp",
             ])
         add_numpy_flags(ext)
-        add_libagg_flags(ext)
+        add_libagg_flags_and_sources(ext)
         FreeType.add_flags(ext)
         yield ext
         # c_internal_utils
@@ -398,16 +401,6 @@ class Matplotlib(SetupPackage):
                 "linux": ["dl"],
                 "win32": ["ole32", "shell32", "user32"],
             }.get(sys.platform, [])))
-        yield ext
-        # contour
-        ext = Extension(
-            "matplotlib._contour", [
-                "src/_contour.cpp",
-                "src/_contour_wrapper.cpp",
-                "src/py_converters.cpp",
-            ])
-        add_numpy_flags(ext)
-        add_libagg_flags(ext)
         yield ext
         # ft2font
         ext = Extension(
@@ -427,7 +420,7 @@ class Matplotlib(SetupPackage):
                 "src/py_converters.cpp",
             ])
         add_numpy_flags(ext)
-        add_libagg_flags(ext)
+        add_libagg_flags_and_sources(ext)
         yield ext
         # path
         ext = Extension(
@@ -436,11 +429,11 @@ class Matplotlib(SetupPackage):
                 "src/_path_wrapper.cpp",
             ])
         add_numpy_flags(ext)
-        add_libagg_flags(ext)
+        add_libagg_flags_and_sources(ext)
         yield ext
         # qhull
         ext = Extension(
-            "matplotlib._qhull", ["src/qhull_wrap.cpp"],
+            "matplotlib._qhull", ["src/_qhull_wrapper.cpp"],
             define_macros=[("MPL_DEVNULL", os.devnull)])
         add_numpy_flags(ext)
         Qhull.add_flags(ext)
@@ -489,6 +482,7 @@ class Tests(OptionalPackage):
                 *_pkg_data_helper('matplotlib', 'tests/baseline_images'),
                 *_pkg_data_helper('matplotlib', 'tests/tinypages'),
                 'tests/cmr10.pfb',
+                'tests/Courier10PitchBT-Bold.pfb',
                 'tests/mpltest.ttf',
                 'tests/test_*.ipynb',
             ],
@@ -513,7 +507,6 @@ def add_numpy_flags(ext):
 
 def add_libagg_flags(ext):
     ext.include_dirs.append('@AGG_INCLUDE_DIRS@')
-    
     if sys.platform == 'darwin':
         ext.extra_link_args.extend(['-Wl,-F@AGG_FRAMEWORK_DIRS@'])
         ext.extra_link_args.extend(['-framework', '@AGG_FRAMEWORK@'])
@@ -522,6 +515,25 @@ def add_libagg_flags(ext):
     elif sys.platform == 'win32':
         ext.libraries.append('agg')
         ext.library_dirs.append('@AGG_LIBRARY_DIR@')
+
+
+def add_libagg_flags_and_sources(ext):
+    # We need a patched Agg not available elsewhere, so always use the vendored
+    # version.
+    ext.include_dirs.insert(0, "extern/agg24-svn/include")
+    agg_sources = [
+        "agg_bezier_arc.cpp",
+        "agg_curves.cpp",
+        "agg_image_filters.cpp",
+        "agg_trans_affine.cpp",
+        "agg_vcgen_contour.cpp",
+        "agg_vcgen_dash.cpp",
+        "agg_vcgen_stroke.cpp",
+        "agg_vpgen_segmentator.cpp",
+    ]
+    ext.sources.extend(
+        os.path.join("extern", "agg24-svn", "src", x) for x in agg_sources)
+
 
 def get_ccompiler():
     """
@@ -570,7 +582,6 @@ class Qhull(SetupPackage):
     @classmethod
     def add_flags(cls, ext):
         ext.include_dirs.append('@QHULL_INCLUDE_DIRS@')
-        
         if sys.platform == 'darwin':
             ext.extra_link_args.extend(['-Wl,-F@QHULL_FRAMEWORK_DIRS@'])
             ext.extra_link_args.extend(['-framework', '@QHULL_FRAMEWORK@'])
@@ -580,8 +591,27 @@ class Qhull(SetupPackage):
             ext.libraries.append('qhull_r_i')
             ext.library_dirs.append('@QHULL_LIBRARY_DIR@')
 
+    def do_custom_build(self, env):
+        if options.get('system_qhull'):
+            return
+
+        toplevel = get_and_extract_tarball(
+            urls=["http://www.qhull.org/download/qhull-2020-src-8.0.2.tgz"],
+            sha=LOCAL_QHULL_HASH,
+            dirname=f"qhull-{LOCAL_QHULL_VERSION}",
+        )
+        shutil.copyfile(toplevel / "COPYING.txt", "LICENSE/LICENSE_QHULL")
+
+        for ext in self._extensions_to_update:
+            qhull_path = Path(f'build/qhull-{LOCAL_QHULL_VERSION}/src')
+            ext.include_dirs.insert(0, str(qhull_path))
+            ext.sources.extend(
+                map(str, sorted(qhull_path.glob('libqhull_r/*.c'))))
+            if sysconfig.get_config_var("LIBM") == "-lm":
+                ext.libraries.extend("m")
+
+
 class BackendMacOSX(OptionalPackage):
-    config_category = 'gui_support'
     name = 'macosx'
 
     def check(self):
@@ -590,11 +620,11 @@ class BackendMacOSX(OptionalPackage):
         return super().check()
 
     def get_extensions(self):
-        sources = [
-            'src/_macosx.m'
-            ]
-        ext = Extension('matplotlib.backends._macosx', sources)
-        ext.extra_compile_args.extend(['-Werror=unguarded-availability'])
+        ext = Extension(
+            'matplotlib.backends._macosx', [
+                'src/_macosx.m'
+            ])
+        ext.extra_compile_args.extend(['-Werror'])
         ext.extra_link_args.extend(['-framework', 'Cocoa'])
         if platform.python_implementation().lower() == 'pypy':
             ext.extra_compile_args.append('-DPYPY=1')
